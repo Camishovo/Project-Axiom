@@ -62,6 +62,17 @@
     <key>NSMicrophoneUsageDescription</key>
     <string>Axiom uses the microphone for voice input when sending messages to your Gateway.</string>
 
+    <!-- Location: agent-requested location sharing (Phase 3) -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Axiom shares your location with your AI agent when you approve a location request, enabling context-aware assistance.</string>
+
+    <!-- Background modes: WebSocket keep-alive + push notifications -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>remote-notification</string>
+    </array>
+
     <!-- ── App Transport Security ── -->
     <!-- Allow plain ws:// for local dev; production should use wss:// -->
     <key>NSAppTransportSecurity</key>
