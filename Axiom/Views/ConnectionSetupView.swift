@@ -68,7 +68,7 @@ struct ConnectionSetupView: View {
                 Spacer()
             }
             .sheet(isPresented: $showQRScanner) {
-                QRScannerView { config in
+                QRCodeScannerView { config in
                     showQRScanner = false
                     Task { await gateway.connect(config: config) }
                 }
