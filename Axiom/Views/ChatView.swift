@@ -3,12 +3,26 @@ import SwiftUI
 struct ChatView: View {
     @EnvironmentObject var gateway: GatewayManager
     let sessionKey: String?
-    
-    @State private var messages: [ChatMessage] = []
+
     @State private var inputText = ""
-    @State private var isAgentTyping = false
     @FocusState private var isInputFocused: Bool
-    
+
+    private var currentSessionKey: String { sessionKey ?? gateway.activeSessionKey ?? "default" }
+
+    // Messages for this session, sorted by timestamp
+    private var messages: [ChatMessage] {
+        (gateway.messages[currentSessionKey] ?? [])
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
+    // Show typing indicator if there are any streaming tokens for this session
+    private var isAgentTyping: Bool {
+        let sessionMessages = gateway.messages[currentSessionKey] ?? []
+        let messageIds = Set(sessionMessages.map { $0.id })
+        return gateway.streamingMessages.keys.contains(where: { messageIds.contains($0) })
+            || (!gateway.streamingMessages.isEmpty && messages.isEmpty)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Messages
@@ -19,8 +33,16 @@ struct ChatView: View {
                             MessageBubble(message: message)
                                 .id(message.id)
                         }
-                        
-                        if isAgentTyping {
+
+                        // Streaming bubble — show accumulated tokens live
+                        ForEach(Array(gateway.streamingMessages.keys.sorted()), id: \.self) { msgId in
+                            if let text = gateway.streamingMessages[msgId], !text.isEmpty {
+                                StreamingBubble(text: text)
+                                    .id("streaming-\(msgId)")
+                            }
+                        }
+
+                        if isAgentTyping && gateway.streamingMessages.isEmpty {
                             TypingIndicator()
                                 .id("typing")
                         }
@@ -32,48 +54,80 @@ struct ChatView: View {
                         proxy.scrollTo(messages.last?.id ?? "typing", anchor: .bottom)
                     }
                 }
+                .onChange(of: gateway.streamingMessages.count) { _, _ in
+                    withAnimation {
+                        if let lastKey = gateway.streamingMessages.keys.sorted().last {
+                            proxy.scrollTo("streaming-\(lastKey)", anchor: .bottom)
+                        }
+                    }
+                }
             }
-            
+
             Divider()
-            
+
             // Input bar
             HStack(spacing: 12) {
                 TextField("Message", text: $inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...5)
                     .focused($isInputFocused)
-                
+
                 Button {
                     sendMessage()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
                 }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          || !gateway.isConnected)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(.bar)
         }
-        .navigationTitle(sessionKey ?? "New Chat")
+        .navigationTitle(currentSessionKey)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            gateway.activeSessionKey = currentSessionKey
+        }
     }
-    
+
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        
-        let message = ChatMessage(
-            sessionKey: sessionKey ?? "new",
+        inputText = ""
+
+        // Optimistically insert the user message locally
+        let userMsg = ChatMessage(
+            sessionKey: currentSessionKey,
             role: "user",
             content: text
         )
-        messages.append(message)
-        inputText = ""
-        isAgentTyping = true
-        
+        var list = gateway.messages[currentSessionKey] ?? []
+        list.append(userMsg)
+        gateway.messages[currentSessionKey] = list
+
         Task {
-            try? await gateway.sendMessage(text, sessionKey: sessionKey)
+            try? await gateway.sendMessage(text, sessionKey: currentSessionKey)
+        }
+    }
+}
+
+// MARK: - Streaming Bubble
+
+struct StreamingBubble: View {
+    let text: String
+
+    var body: some View {
+        HStack {
+            Text(text)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(.systemGray5))
+                .foregroundStyle(.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+
+            Spacer(minLength: 60)
         }
     }
 }
@@ -82,13 +136,13 @@ struct ChatView: View {
 
 struct MessageBubble: View {
     let message: ChatMessage
-    
+
     private var isUser: Bool { message.role == "user" }
-    
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 60) }
-            
+
             VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
                 Text(message.content)
                     .padding(.horizontal, 14)
@@ -96,17 +150,17 @@ struct MessageBubble: View {
                     .background(isUser ? Color.accentColor : Color(.systemGray5))
                     .foregroundStyle(isUser ? .white : .primary)
                     .clipShape(RoundedRectangle(cornerRadius: 18))
-                
+
                 if message.isStreaming {
                     ProgressView()
                         .scaleEffect(0.6)
                 }
-                
+
                 Text(message.timestamp, style: .time)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
-            
+
             if !isUser { Spacer(minLength: 60) }
         }
     }
@@ -116,7 +170,7 @@ struct MessageBubble: View {
 
 struct TypingIndicator: View {
     @State private var animating = false
-    
+
     var body: some View {
         HStack {
             HStack(spacing: 4) {
@@ -137,7 +191,7 @@ struct TypingIndicator: View {
             .padding(.vertical, 10)
             .background(Color(.systemGray5))
             .clipShape(RoundedRectangle(cornerRadius: 18))
-            
+
             Spacer()
         }
         .onAppear { animating = true }
