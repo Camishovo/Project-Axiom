@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+    <!-- ── Bundle identity ── -->
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>Axiom</string>
+    <key>CFBundleDisplayName</key>
+    <string>Axiom</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+    <!-- ── Supported interface ── -->
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- ── Privacy permissions ── -->
+
+    <!-- Camera: QR code scanner in ConnectionSetupView -->
+    <key>NSCameraUsageDescription</key>
+    <string>Axiom uses the camera to scan QR codes for quick Gateway connection setup.</string>
+
+    <!-- Local Network: mDNS discovery of OpenClaw Gateways on LAN -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Axiom scans your local network to discover nearby OpenClaw Gateways for quick setup.</string>
+
+    <!-- Bonjour service types required for NWBrowser local network access (iOS 14+) -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_openclaw-gw._tcp</string>
+    </array>
+
+    <!-- Face ID / Touch ID: biometric lock in SettingsView -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>Axiom can use Face ID or Touch ID to protect access to your Gateway connection.</string>
+
+    <!-- Microphone: future voice input support -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Axiom uses the microphone for voice input when sending messages to your Gateway.</string>
+
+    <!-- ── App Transport Security ── -->
+    <!-- Allow plain ws:// for local dev; production should use wss:// -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>localhost</key>
+            <dict>
+                <key>NSExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <false/>
+            </dict>
+        </dict>
+    </dict>
+
+</dict>
+</plist>
