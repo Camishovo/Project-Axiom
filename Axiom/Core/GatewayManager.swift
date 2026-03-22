@@ -11,6 +11,9 @@ class GatewayManager: ObservableObject {
     @Published var connectionState: ConnectionState = .disconnected
     @Published var gatewayStatus: GatewayStatus?
     @Published var error: GatewayError?
+    @Published var sessions: [SessionInfo] = []
+    @Published var nodes: [NodeInfo] = []
+    @Published var activeConfig: GatewayConnectionConfig?
     
     var isConnected: Bool {
         connectionState == .connected
@@ -21,12 +24,14 @@ class GatewayManager: ObservableObject {
     private var nodeConnection: WebSocketConnection?
     private var operatorConnection: WebSocketConnection?
     private var reconnectTask: Task<Void, Never>?
+    private var statusPollTask: Task<Void, Never>?
     private var config: GatewayConnectionConfig?
     
     // MARK: - Connect
     
     func connect(config: GatewayConnectionConfig) async {
         self.config = config
+        self.activeConfig = config
         connectionState = .connecting
         
         do {
@@ -62,6 +67,9 @@ class GatewayManager: ObservableObject {
             connectionState = .connected
             error = nil
             
+            // Start polling for live status
+            startStatusPolling()
+            
         } catch let err as GatewayError {
             connectionState = .disconnected
             error = err
@@ -72,10 +80,14 @@ class GatewayManager: ObservableObject {
     }
     
     func disconnect() {
+        stopStatusPolling()
         reconnectTask?.cancel()
         nodeConnection?.disconnect()
         operatorConnection?.disconnect()
         connectionState = .disconnected
+        sessions = []
+        gatewayStatus = nil
+        activeConfig = nil
     }
     
     // MARK: - Chat
@@ -112,6 +124,41 @@ class GatewayManager: ObservableObject {
         try await operatorConnection?.send(json: payload)
     }
     
+    // MARK: - Status
+    
+    func fetchGatewayStatus() async throws {
+        let payload: [String: Any] = [
+            "method": "gateway.status",
+            "params": [:]
+        ]
+        try await operatorConnection?.send(json: payload)
+    }
+    
+    func fetchNodes() async throws {
+        let payload: [String: Any] = [
+            "method": "nodes.list",
+            "params": [:]
+        ]
+        try await operatorConnection?.send(json: payload)
+    }
+    
+    /// Start polling for live status updates
+    func startStatusPolling(interval: TimeInterval = 10) {
+        statusPollTask?.cancel()
+        statusPollTask = Task {
+            while !Task.isCancelled && connectionState == .connected {
+                try? await fetchGatewayStatus()
+                try? await listSessions()
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+    
+    func stopStatusPolling() {
+        statusPollTask?.cancel()
+        statusPollTask = nil
+    }
+    
     // MARK: - Private
     
     private func authenticate() async throws {
@@ -142,7 +189,56 @@ class GatewayManager: ObservableObject {
     }
     
     private func handleOperatorMessage(_ message: WebSocketMessage) async {
-        // Handle chat messages, session updates, status responses
+        guard let method = message.method else { return }
+        let params = message.params ?? [:]
+        
+        switch method {
+        case "gateway.status.response":
+            gatewayStatus = GatewayStatus(
+                uptime: params["uptime"] as? TimeInterval ?? 0,
+                activeModel: params["model"] as? String ?? "unknown",
+                activeSessions: params["activeSessions"] as? Int ?? 0,
+                tokenUsage: TokenUsage(
+                    input: (params["tokenUsage"] as? [String: Any])?["input"] as? Int ?? 0,
+                    output: (params["tokenUsage"] as? [String: Any])?["output"] as? Int ?? 0,
+                    estimatedCost: (params["tokenUsage"] as? [String: Any])?["estimatedCost"] as? Double ?? 0
+                )
+            )
+            
+        case "sessions.list.response":
+            if let sessionData = params["sessions"] as? [[String: Any]] {
+                sessions = sessionData.map { s in
+                    SessionInfo(
+                        sessionKey: s["sessionKey"] as? String ?? "",
+                        channel: s["channel"] as? String,
+                        sender: s["sender"] as? String,
+                        messageCount: s["messageCount"] as? Int ?? 0,
+                        lastActivity: Date(timeIntervalSince1970: s["lastActivity"] as? TimeInterval ?? 0),
+                        inputTokens: s["inputTokens"] as? Int ?? 0,
+                        outputTokens: s["outputTokens"] as? Int ?? 0,
+                        estimatedCost: s["estimatedCost"] as? Double ?? 0,
+                        isActive: s["isActive"] as? Bool ?? false
+                    )
+                }
+            }
+            
+        case "nodes.list.response":
+            if let nodeData = params["nodes"] as? [[String: Any]] {
+                nodes = nodeData.map { n in
+                    NodeInfo(
+                        id: n["id"] as? String ?? "",
+                        name: n["name"] as? String ?? "Unknown",
+                        platform: n["platform"] as? String ?? "unknown",
+                        isConnected: n["connected"] as? Bool ?? false,
+                        capabilities: n["capabilities"] as? [String] ?? [],
+                        lastSeen: Date(timeIntervalSince1970: n["lastSeen"] as? TimeInterval ?? 0)
+                    )
+                }
+            }
+            
+        default:
+            break
+        }
     }
     
     private func handleDisconnect() async {
@@ -208,4 +304,38 @@ struct TokenUsage {
     let input: Int
     let output: Int
     let estimatedCost: Double
+}
+
+struct SessionInfo: Identifiable {
+    var id: String { sessionKey }
+    let sessionKey: String
+    let channel: String?
+    let sender: String?
+    let messageCount: Int
+    let lastActivity: Date
+    let inputTokens: Int
+    let outputTokens: Int
+    let estimatedCost: Double
+    let isActive: Bool
+    
+    var totalTokens: Int { inputTokens + outputTokens }
+    var displayName: String { channel ?? sender ?? sessionKey }
+}
+
+struct NodeInfo: Identifiable {
+    let id: String
+    let name: String
+    let platform: String
+    let isConnected: Bool
+    let capabilities: [String]
+    let lastSeen: Date
+    
+    var platformIcon: String {
+        switch platform {
+        case "ios": return "iphone"
+        case "macos": return "laptopcomputer"
+        case "android": return "phone"
+        default: return "desktopcomputer"
+        }
+    }
 }
